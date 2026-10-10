@@ -1,41 +1,166 @@
 package main;
 
-import model.Mahasiswa;
+import model.Akun;
+import model.AkunPembeli;
+import model.AkunPenjual;
 import model.Produk;
+import model.Promo;
+import service.Autentikasi;
 import service.Kantin;
-import service.Transaksi;
+import util.Input;
 import util.Tampilan;
 
 /**
  * Class Main
  * ----------
- * Fungsi : class utama untuk menjalankan aplikasi Sistem Pengelolaan Kantin Kampus.
- *          Main membuat object-object (Kantin, Produk, Mahasiswa, Transaksi),
- *          lalu menjalankan alur program secara berurutan dalam 5 tahap.
+ * Fungsi : class utama Sistem Pengelolaan Kantin Kampus (versi interaktif).
+ *          Menyiapkan data awal (menu, promo, akun), lalu menampilkan menu awal:
+ *          login sebagai Pembeli, login sebagai Penjual, atau daftar akun pembeli baru.
+ *          Setelah login, alur dilanjutkan oleh MenuPembeli atau MenuPenjual.
+ *
+ * Catatan: semua data disimpan di memori, jadi kembali ke kondisi awal setiap program dijalankan ulang.
  */
 public class Main {
 
-    // CATATAN: isi dengan nama dan NIM kamu, lalu jalankan ulang sebelum mengambil screenshot
+    // CATATAN: isi dengan nama dan NIM kamu
     private static final String NAMA_PEMBUAT = "[Nama Kamu]";
     private static final String NIM_PEMBUAT = "[NIM Kamu]";
 
-    public static void main(String[] args) {
+    private static final int BATAS_PERCOBAAN_LOGIN = 3;
 
-        // ============================================================
-        // JUDUL APLIKASI
-        // ============================================================
+    public static void main(String[] args) {
+        Kantin kantin = siapkanKantin();
+        Autentikasi autentikasi = siapkanAkun();
+
         Tampilan.cetakJudul("SISTEM PENGELOLAAN KANTIN KAMPUS", "Project Object Oriented Programming - Java");
         System.out.println(" Disusun oleh : " + NAMA_PEMBUAT + " (" + NIM_PEMBUAT + ")");
 
-        // ============================================================
-        // TAHAP 1 : membuat object Kantin, Produk, dan Mahasiswa
-        // ============================================================
-        Tampilan.cetakBagian("TAHAP 1 : PERSIAPAN DATA MENU DAN MAHASISWA");
+        boolean berjalan = true;
+        while (berjalan) {
+            Tampilan.cetakBagian("SELAMAT DATANG DI " + kantin.getNamaKantin().toUpperCase());
+            Tampilan.cetakPilihan(1, "Login sebagai Pembeli");
+            Tampilan.cetakPilihan(2, "Login sebagai Penjual");
+            Tampilan.cetakPilihan(3, "Daftar akun pembeli baru");
+            Tampilan.cetakPilihan(4, "Lihat akun demo");
+            Tampilan.cetakPilihan(0, "Keluar");
 
-        // Membuat object Kantin
+            switch (Input.pilihan(4)) {
+                case 1:
+                    Akun pembeli = login(autentikasi, Akun.PERAN_PEMBELI);
+                    if (pembeli != null) {
+                        Tampilan.sukses("Login berhasil. Selamat datang, " + pembeli.getNamaTampil() + "!");
+                        new MenuPembeli(kantin, (AkunPembeli) pembeli).jalankan();
+                    }
+                    break;
+                case 2:
+                    Akun penjual = login(autentikasi, Akun.PERAN_PENJUAL);
+                    if (penjual != null) {
+                        Tampilan.sukses("Login berhasil. Selamat bekerja, " + penjual.getNamaTampil() + "!");
+                        new MenuPenjual(kantin, autentikasi, (AkunPenjual) penjual).jalankan();
+                    }
+                    break;
+                case 3:
+                    daftar(autentikasi);
+                    break;
+                case 4:
+                    tampilkanAkunDemo();
+                    break;
+                default:
+                    berjalan = false;
+            }
+        }
+
+        System.out.println();
+        Tampilan.cetakJudul("PROGRAM SELESAI - TERIMA KASIH");
+    }
+
+    // ==================== LOGIN & DAFTAR ====================
+
+    // Meminta username dan password (maksimal 3 kali coba). Hasil null jika gagal / dibatalkan.
+    private static Akun login(Autentikasi autentikasi, String peran) {
+        Tampilan.cetakSubJudul("Login " + peran);
+        for (int percobaan = 1; percobaan <= BATAS_PERCOBAAN_LOGIN; percobaan++) {
+            String username = Input.teks("Username (kosong=batal)");
+            if (username.isEmpty()) {
+                return null;
+            }
+            String password = Input.teks("Password");
+            Akun akun = autentikasi.login(username, password, peran);
+            if (akun != null) {
+                return akun;
+            }
+            if (percobaan < BATAS_PERCOBAAN_LOGIN) {
+                Tampilan.info("Sisa percobaan: " + (BATAS_PERCOBAAN_LOGIN - percobaan));
+            }
+        }
+        Tampilan.gagal("Terlalu banyak percobaan. Kembali ke menu awal.");
+        return null;
+    }
+
+    // Pendaftaran pembeli baru: setiap isian diperiksa satu per satu
+    private static void daftar(Autentikasi autentikasi) {
+        Tampilan.cetakSubJudul("Daftar Akun Pembeli Baru (kosongkan username untuk batal)");
+
+        String username;
+        while (true) {
+            username = Input.teks("Username");
+            if (username.isEmpty()) {
+                Tampilan.info("Pendaftaran dibatalkan.");
+                return;
+            }
+            String masalah = autentikasi.pesanUsernameTidakValid(username);
+            if (masalah == null) {
+                break;
+            }
+            Tampilan.gagal(masalah);
+        }
+
+        String password;
+        while (true) {
+            password = Input.teks("Password (min " + Akun.PASSWORD_MIN + " karakter)");
+            String masalah = Akun.pesanPasswordTidakValid(password);
+            if (masalah != null) {
+                Tampilan.gagal(masalah);
+            } else if (!Input.teks("Ulangi password").equals(password)) {
+                Tampilan.gagal("Pengulangan password tidak sama.");
+            } else {
+                break;
+            }
+        }
+
+        String nama = Input.teksWajib("Nama lengkap");
+
+        String nim;
+        while (true) {
+            nim = Input.teks("NIM");
+            String masalah = autentikasi.pesanNimTidakValid(nim);
+            if (masalah == null) {
+                break;
+            }
+            Tampilan.gagal(masalah);
+        }
+
+        String jurusan = Input.teks("Jurusan (boleh dikosongkan)");
+
+        AkunPembeli akun = autentikasi.daftarPembeli(username, password, nim, nama, jurusan);
+        if (akun != null) {
+            Tampilan.sukses("Akun \"" + akun.getUsername() + "\" berhasil dibuat. Silakan login.");
+        }
+    }
+
+    private static void tampilkanAkunDemo() {
+        Tampilan.cetakSubJudul("Akun Demo");
+        System.out.println("  Penjual : username penjual | password kantin123");
+        System.out.println("  Pembeli : username rani    | password rani123   (saldo Rp 50.000)");
+        System.out.println("  Pembeli : username budi    | password budi123   (saldo Rp 30.000)");
+        System.out.println("  Kamu juga bisa membuat akun pembeli sendiri lewat menu Daftar.");
+    }
+
+    // ==================== DATA AWAL ====================
+
+    private static Kantin siapkanKantin() {
         Kantin kantin = new Kantin("Kantin Kampus Sejahtera");
 
-        // Membuat object Produk dengan constructor 5 parameter (lengkap dengan stok awal)
         kantin.tambahProduk(new Produk("P001", "Nasi Goreng", "Makanan", 15000, 10));
         kantin.tambahProduk(new Produk("P002", "Mie Ayam", "Makanan", 12000, 8));
         kantin.tambahProduk(new Produk("P003", "Ayam Geprek", "Makanan", 18000, 6));
@@ -43,126 +168,23 @@ public class Main {
         kantin.tambahProduk(new Produk("P005", "Es Teh Manis", "Minuman", 4000, 20));
         kantin.tambahProduk(new Produk("P006", "Es Jeruk", "Minuman", 5000, 15));
         kantin.tambahProduk(new Produk("P007", "Kopi Hitam", "Minuman", 6000, 12));
+        kantin.tambahProduk(new Produk("P008", "Roti Bakar", "Camilan", 10000)); // constructor 4 parameter: stok 0
 
-        // Constructor 4 parameter: menu baru yang stok awalnya otomatis 0
-        kantin.tambahProduk(new Produk("P008", "Roti Bakar", "Camilan", 10000));
+        kantin.tambahPromo(new Promo("MAHASISWA5", "Diskon khusus mahasiswa", 5, 0));
+        kantin.tambahPromo(new Promo("HEMAT10", "Diskon belanja hemat", 10, 30000));
+        kantin.tambahPromo(new Promo("SERBA15", "Diskon belanja besar", 15, 60000));
+        return kantin;
+    }
 
-        Tampilan.sukses(kantin.getJumlahMenu() + " produk berhasil didaftarkan ke menu " + kantin.getNamaKantin());
-        kantin.tampilkanMenu();
+    private static Autentikasi siapkanAkun() {
+        Autentikasi autentikasi = new Autentikasi();
+        autentikasi.tambahPenjual("penjual", "kantin123", "Pengelola Kantin");
 
-        // Membuat object Mahasiswa: constructor 3 parameter, lalu constructor 2 parameter (tanpa jurusan)
-        Mahasiswa rani = new Mahasiswa("2301001", "Rani Putri", "Informatika");
-        Mahasiswa budi = new Mahasiswa("2301002", "Budi Santoso", "Sistem Informasi");
-        Mahasiswa citra = new Mahasiswa("2301003", "Citra Lestari", "Teknik Elektro");
-        Mahasiswa dimas = new Mahasiswa("2301004", "Dimas Pratama");
-
-        Tampilan.cetakSubJudul("Data Mahasiswa Pelanggan");
-        Mahasiswa.cetakHeaderTabel();
-        rani.tampilkanInfo();
-        budi.tampilkanInfo();
-        citra.tampilkanInfo();
-        dimas.tampilkanInfo();
-
-        // ============================================================
-        // TAHAP 2 : transaksi pembelian normal
-        // ============================================================
-        Tampilan.cetakBagian("TAHAP 2 : PROSES TRANSAKSI PEMBELIAN");
-
-        // ----- Transaksi 1 : tanpa diskon -----
-        Tampilan.cetakSubJudul("Transaksi 1 - Rani makan siang (tanpa diskon)");
-        Transaksi trx1 = new Transaksi(rani);
-        Tampilan.info("Transaksi " + trx1.getIdTransaksi() + " dibuat untuk " + rani.getNama());
-
-        trx1.tambahItem(kantin.cariProduk("P001"), 2); // produk dicari berdasarkan KODE
-        trx1.tambahItem(kantin.cariProduk(5), 2);      // produk dicari berdasarkan NOMOR MENU
-        trx1.tambahItem(kantin.cariProduk("P007"));    // jumlah tidak ditulis -> otomatis 1
-        Tampilan.info("Total belanja : " + Tampilan.rupiah(trx1.hitungTotal()));
-
-        trx1.bayar(50000);                             // bayar tanpa diskon
-        trx1.cetakStruk();
-        kantin.catatTransaksi(trx1);
-
-        // ----- Transaksi 2 : memakai diskon 10% -----
-        Tampilan.cetakSubJudul("Transaksi 2 - Budi memakai promo diskon 10%");
-        Transaksi trx2 = new Transaksi(budi);
-        Tampilan.info("Transaksi " + trx2.getIdTransaksi() + " dibuat untuk " + budi.getNama());
-
-        trx2.tambahItem(kantin.cariProduk("P003"), 2);
-        trx2.tambahItem(kantin.cariProduk("P006"), 2);
-        Tampilan.info("Total sebelum diskon : " + Tampilan.rupiah(trx2.hitungTotal()));
-        Tampilan.info("Total setelah diskon : " + Tampilan.rupiah(trx2.hitungTotal(10)));
-
-        trx2.bayar(50000, 10);                         // bayar dengan diskon 10%
-        trx2.cetakStruk();
-        kantin.catatTransaksi(trx2);
-
-        // ============================================================
-        // TAHAP 3 : transaksi yang bermasalah (stok, uang kurang, batal)
-        // ============================================================
-        Tampilan.cetakBagian("TAHAP 3 : TRANSAKSI DENGAN KENDALA (STOK / UANG / BATAL)");
-
-        // ----- Transaksi 3 : stok habis, uang kurang, lalu berhasil -----
-        Tampilan.cetakSubJudul("Transaksi 3 - Citra (stok habis dan uang kurang)");
-        Transaksi trx3 = new Transaksi(citra);
-        Tampilan.info("Transaksi " + trx3.getIdTransaksi() + " dibuat untuk " + citra.getNama());
-
-        trx3.tambahItem(kantin.cariProduk("P008"), 1); // Roti Bakar stok 0 -> ditolak
-        trx3.tambahItem(kantin.cariProduk("P002"), 3); // Mie Ayam diterima
-        trx3.bayar(30000);                             // uang kurang -> pembayaran gagal
-        trx3.bayar(40000);                             // dicoba lagi dengan uang cukup -> berhasil
-        kantin.catatTransaksi(trx3);
-
-        // ----- Transaksi 4 : dibatalkan -----
-        Tampilan.cetakSubJudul("Transaksi 4 - Dimas membatalkan pesanan");
-        Transaksi trx4 = new Transaksi(dimas);
-        Tampilan.info("Transaksi " + trx4.getIdTransaksi() + " dibuat untuk " + dimas.getNama());
-
-        trx4.tambahItem(kantin.cariProduk("P004"));    // Soto Ayam x1
-        trx4.tambahItem(kantin.cariProduk("P005"));    // Es Teh Manis x1
-        trx4.batalkan();                               // pesanan dibatalkan
-        trx4.bayar(20000);                             // sudah dibatalkan -> tidak bisa dibayar
-        kantin.catatTransaksi(trx4);
-
-        // ============================================================
-        // TAHAP 4 : pengelolaan menu (restok dan ubah harga)
-        // ============================================================
-        Tampilan.cetakBagian("TAHAP 4 : PENGELOLAAN MENU (RESTOK DAN UBAH HARGA)");
-
-        Tampilan.cetakSubJudul("Restok Roti Bakar");
-        kantin.restok("P008", 10);
-        Tampilan.info("Detail produk setelah restok:");
-        kantin.cariProduk("P008").tampilkanInfo();     // tampilkanInfo() tanpa parameter -> detail produk
-
-        Tampilan.cetakSubJudul("Ubah harga Es Teh Manis");
-        Produk esTeh = kantin.cariProduk("P005");
-        Tampilan.info("Harga lama : " + Tampilan.rupiah(esTeh.getHarga()));
-        esTeh.setHarga(5000);
-        Tampilan.info("Harga baru : " + Tampilan.rupiah(esTeh.getHarga()));
-
-        // ============================================================
-        // TAHAP 5 : hasil akhir dan laporan
-        // ============================================================
-        Tampilan.cetakBagian("TAHAP 5 : HASIL AKHIR DAN LAPORAN KANTIN");
-
-        kantin.tampilkanMenu();                        // stok dan harga setelah semua proses
-        kantin.tampilkanRiwayat();
-
-        Tampilan.cetakSubJudul("Rekap Belanja Mahasiswa");
-        Mahasiswa.cetakHeaderTabel();
-        rani.tampilkanInfo();
-        budi.tampilkanInfo();
-        citra.tampilkanInfo();
-        dimas.tampilkanInfo();
-
-        kantin.tampilkanLaporan();
-
-        // Variabel static dibaca lewat nama class, tanpa perlu object
-        Tampilan.cetakSubJudul("Statistik Object (variabel static)");
-        System.out.printf(" %-25s: %d%n", "Object Produk dibuat", Produk.getJumlahProduk());
-        System.out.printf(" %-25s: %d%n", "Object Mahasiswa dibuat", Mahasiswa.getJumlahMahasiswa());
-        System.out.printf(" %-25s: %d%n", "Object Transaksi dibuat", Transaksi.getJumlahTransaksi());
-
-        System.out.println();
-        Tampilan.cetakJudul("PROGRAM SELESAI - TERIMA KASIH");
+        AkunPembeli rani = autentikasi.daftarPembeli("rani", "rani123", "2301001", "Rani Putri", "Informatika");
+        rani.getProfil().topUp(50000);
+        AkunPembeli budi = autentikasi.daftarPembeli("budi", "budi123", "2301002", "Budi Santoso",
+                "Sistem Informasi");
+        budi.getProfil().topUp(30000);
+        return autentikasi;
     }
 }
