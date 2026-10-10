@@ -115,6 +115,19 @@ public class Tampilan {
         cetakGaris();
     }
 
+    // Mencetak satu pilihan menu bernomor. Contoh: "   1. Lihat menu"
+    public static void cetakPilihan(int nomor, String teks) {
+        System.out.printf("   %d. %s%n", nomor, teks);
+    }
+
+    // Menampilkan persen tanpa ".0" di belakang. Contoh: 10.0 -> "10", 12.5 -> "12.5"
+    public static String persen(double nilai) {
+        if (nilai == (int) nilai) {
+            return String.valueOf((int) nilai);
+        }
+        return String.valueOf(nilai);
+    }
+
     // ==================== PESAN STATUS ====================
 
     public static void info(String pesan) {

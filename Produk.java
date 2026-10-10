@@ -18,6 +18,9 @@ public class Produk {
     // [STATIC] Konstanta: stok dianggap "menipis" jika jumlahnya <= nilai ini
     public static final int BATAS_STOK_MENIPIS = 5;
 
+    // [STATIC] Konstanta: batas atas stok satu produk
+    public static final int STOK_MAKS = 9999;
+
     // Format kolom tabel menu (dipakai bersama oleh header dan baris tabel)
     private static final String FORMAT_HEADER = " %2s | %-4s | %-24s | %-9s | %10s | %4s%n";
     private static final String FORMAT_BARIS = " %2d | %-4s | %-24s | %-9s | %10s | %4d%n";
@@ -82,6 +85,34 @@ public class Produk {
         if (harga > 0) {
             this.harga = harga;
         }
+    }
+
+    // Mengubah nama produk (tidak boleh kosong). Mengembalikan false jika tidak valid.
+    public boolean setNamaProduk(String namaProduk) {
+        if (namaProduk == null || namaProduk.trim().isEmpty()) {
+            return false;
+        }
+        this.namaProduk = namaProduk.trim();
+        return true;
+    }
+
+    // Mengubah kategori produk (tidak boleh kosong). Mengembalikan false jika tidak valid.
+    public boolean setKategori(String kategori) {
+        if (kategori == null || kategori.trim().isEmpty()) {
+            return false;
+        }
+        this.kategori = kategori.trim();
+        return true;
+    }
+
+    // Mengatur stok ke angka tertentu (dipakai penjual untuk koreksi stok).
+    // Nilai harus 0 .. STOK_MAKS, kalau tidak stok tidak berubah dan hasilnya false.
+    public boolean setStok(int stok) {
+        if (stok < 0 || stok > STOK_MAKS) {
+            return false;
+        }
+        this.stok = stok;
+        return true;
     }
 
     // [STATIC METHOD] Dipanggil lewat nama class: Produk.getJumlahProduk()

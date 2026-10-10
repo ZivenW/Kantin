@@ -26,6 +26,10 @@ public class Transaksi {
     public static final String STATUS_LUNAS = "LUNAS";
     public static final String STATUS_BATAL = "DIBATALKAN";
 
+    // [STATIC] Konstanta metode pembayaran
+    public static final String METODE_TUNAI = "Tunai";
+    public static final String METODE_SALDO = "Saldo";
+
     // Format kolom struk
     private static final String FORMAT_HEADER_ITEM = " %-28s %5s %16s %18s%n";
     private static final String FORMAT_BARIS_ITEM = " %-28s %5d %16s %18s%n";
@@ -43,6 +47,8 @@ public class Transaksi {
     private int totalAkhir;      // total yang dibayar setelah diskon
     private int uangBayar;
     private int kembalian;
+    private String metodeBayar;  // "Tunai" / "Saldo" ("-" jika belum dibayar)
+    private int sisaSaldo;       // sisa saldo pembeli setelah bayar pakai saldo
 
     // ==================== CONSTRUCTOR ====================
 
@@ -58,6 +64,8 @@ public class Transaksi {
         this.totalAkhir = 0;
         this.uangBayar = 0;
         this.kembalian = 0;
+        this.metodeBayar = "-";
+        this.sisaSaldo = 0;
     }
 
     // ==================== GETTER ====================
@@ -76,6 +84,15 @@ public class Transaksi {
 
     public int getTotalAkhir() {
         return totalAkhir;
+    }
+
+    public String getMetodeBayar() {
+        return metodeBayar;
+    }
+
+    // Salinan daftar item (dipakai untuk fitur "pesan lagi")
+    public ArrayList<ItemTransaksi> getDaftarItem() {
+        return new ArrayList<>(daftarItem);
     }
 
     public boolean isLunas() {
@@ -166,12 +183,7 @@ public class Transaksi {
     }
 
     public boolean bayar(int uang, double diskonPersen) {
-        if (!status.equals(STATUS_PROSES)) {
-            Tampilan.gagal("Transaksi " + idTransaksi + " sudah " + status + ", tidak bisa dibayar lagi.");
-            return false;
-        }
-        if (daftarItem.isEmpty()) {
-            Tampilan.gagal("Pesanan masih kosong, tidak ada yang dibayar.");
+        if (!bisaDibayar()) {
             return false;
         }
 
@@ -186,27 +198,41 @@ public class Transaksi {
         }
 
         // Validasi 2: pastikan semua stok masih cukup SEBELUM ada stok yang dikurangi
-        for (ItemTransaksi item : daftarItem) {
-            if (!item.getProduk().isTersedia(item.getJumlah())) {
-                Tampilan.gagal("Stok " + item.getProduk().getNamaProduk() + " sudah tidak cukup.");
-                return false;
-            }
+        if (!stokMasihCukup()) {
+            return false;
         }
 
-        // Semua valid -> kurangi stok, simpan hasil pembayaran, catat belanja mahasiswa
-        for (ItemTransaksi item : daftarItem) {
-            item.getProduk().kurangiStok(item.getJumlah());
-        }
-        this.diskonPersen = diskonPersen;
-        this.diskon = potongan;
-        this.totalAkhir = tagihan;
-        this.uangBayar = uang;
-        this.kembalian = uang - tagihan;
-        this.status = STATUS_LUNAS;
-        pembeli.catatPembelian(tagihan);
-
+        selesaikanPembayaran(uang, diskonPersen, potongan, tagihan, METODE_TUNAI);
         Tampilan.sukses("Pembayaran berhasil. Total " + Tampilan.rupiah(tagihan)
                 + ", kembalian " + Tampilan.rupiah(kembalian));
+        return true;
+    }
+
+    // [OVERLOADING] bayarDenganSaldo(diskonPersen): bayar memakai saldo kantin milik pembeli.
+    public boolean bayarDenganSaldo(double diskonPersen) {
+        if (!bisaDibayar()) {
+            return false;
+        }
+
+        int potongan = hitungDiskon(diskonPersen);
+        int tagihan = hitungTotal() - potongan;
+
+        if (pembeli.getSaldo() < tagihan) {
+            Tampilan.gagal("Saldo kurang " + Tampilan.rupiah(tagihan - pembeli.getSaldo()) + " (tagihan "
+                    + Tampilan.rupiah(tagihan) + ", saldo " + Tampilan.rupiah(pembeli.getSaldo()) + ")");
+            return false;
+        }
+        if (!stokMasihCukup()) {
+            return false;
+        }
+
+        // Saldo baru dipotong setelah semua validasi lolos, supaya saldo tidak hilang kalau gagal
+        if (tagihan > 0) {
+            pembeli.kurangiSaldo(tagihan);
+        }
+        selesaikanPembayaran(tagihan, diskonPersen, potongan, tagihan, METODE_SALDO);
+        Tampilan.sukses("Pembayaran saldo berhasil. Total " + Tampilan.rupiah(tagihan)
+                + ", sisa saldo " + Tampilan.rupiah(sisaSaldo));
         return true;
     }
 
@@ -233,7 +259,7 @@ public class Transaksi {
         Tampilan.cetakJudul("STRUK PEMBELIAN KANTIN KAMPUS");
         System.out.println(" No. Transaksi : " + idTransaksi);
         System.out.println(" Pembeli       : " + pembeli.getNama() + " (" + pembeli.getNim() + ")");
-        System.out.println(" Status        : " + status);
+        System.out.println(" Status        : " + status + " (" + metodeBayar + ")");
         Tampilan.cetakGaris();
         System.out.printf(FORMAT_HEADER_ITEM, "Item", "Qty", "Harga", "Subtotal");
         Tampilan.cetakGaris();
@@ -248,14 +274,59 @@ public class Transaksi {
             System.out.printf(FORMAT_RINGKASAN, "Diskon " + formatPersen(diskonPersen) + "%", Tampilan.rupiah(-diskon));
         }
         System.out.printf(FORMAT_RINGKASAN, "TOTAL BAYAR", Tampilan.rupiah(totalAkhir));
-        System.out.printf(FORMAT_RINGKASAN, "Tunai", Tampilan.rupiah(uangBayar));
-        System.out.printf(FORMAT_RINGKASAN, "Kembalian", Tampilan.rupiah(kembalian));
+        if (metodeBayar.equals(METODE_SALDO)) {
+            System.out.printf(FORMAT_RINGKASAN, "Dibayar dengan saldo", Tampilan.rupiah(uangBayar));
+            System.out.printf(FORMAT_RINGKASAN, "Sisa saldo", Tampilan.rupiah(sisaSaldo));
+        } else {
+            System.out.printf(FORMAT_RINGKASAN, "Tunai", Tampilan.rupiah(uangBayar));
+            System.out.printf(FORMAT_RINGKASAN, "Kembalian", Tampilan.rupiah(kembalian));
+        }
         Tampilan.cetakGaris('=');
         System.out.println(Tampilan.tengah("Terima kasih, selamat menikmati!", Tampilan.LEBAR));
         Tampilan.cetakGaris('=');
     }
 
     // ==================== METHOD PRIVATE (BANTUAN INTERNAL) ====================
+
+    // [PRIVATE] Memastikan transaksi masih bisa dibayar (status proses dan pesanan tidak kosong)
+    private boolean bisaDibayar() {
+        if (!status.equals(STATUS_PROSES)) {
+            Tampilan.gagal("Transaksi " + idTransaksi + " sudah " + status + ", tidak bisa dibayar lagi.");
+            return false;
+        }
+        if (daftarItem.isEmpty()) {
+            Tampilan.gagal("Pesanan masih kosong, tidak ada yang dibayar.");
+            return false;
+        }
+        return true;
+    }
+
+    // [PRIVATE] Memastikan stok semua item masih cukup
+    private boolean stokMasihCukup() {
+        for (ItemTransaksi item : daftarItem) {
+            if (!item.getProduk().isTersedia(item.getJumlah())) {
+                Tampilan.gagal("Stok " + item.getProduk().getNamaProduk() + " sudah tidak cukup.");
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // [PRIVATE] Langkah akhir yang sama untuk semua metode bayar: kurangi stok, simpan hasil, catat belanja
+    private void selesaikanPembayaran(int uang, double persen, int potongan, int tagihan, String metode) {
+        for (ItemTransaksi item : daftarItem) {
+            item.getProduk().kurangiStok(item.getJumlah());
+        }
+        this.diskonPersen = persen;
+        this.diskon = potongan;
+        this.totalAkhir = tagihan;
+        this.uangBayar = uang;
+        this.kembalian = uang - tagihan;
+        this.metodeBayar = metode;
+        this.sisaSaldo = pembeli.getSaldo();
+        this.status = STATUS_LUNAS;
+        pembeli.catatPembelian(tagihan);
+    }
 
     // [PRIVATE] Mencari item pesanan berdasarkan kode produk. Hanya dipakai di dalam class ini.
     private ItemTransaksi cariItem(Produk produk) {
